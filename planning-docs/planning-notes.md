@@ -12,6 +12,20 @@ Key decisions and design refinements; full details in `technical-design.md`.
 
 ---
 
+## Mar 31, 2026 — First build: StatCan CPI data service (session 5)
+
+Implemented the data service layer and StatCan CPI adapter. All 35 unit tests passing.
+
+- **Package**: renamed template `aieng-topic-impl` → `aieng-forecasting`. Import namespace: `aieng.forecasting`. Registered in uv workspace.
+- **Data service** (`aieng/forecasting/data/`): `SeriesRecord`, `SeriesMetadata` (Pydantic), `SeriesStore`, `CutoffEnforcer`, `DataService`, `BaseAdapter` (ABC), `StatCanAdapter`.
+- **Evaluation stub** (`aieng/forecasting/evaluation/`): `ForecastingTask` Pydantic model.
+- **StatCan CPI**: `StatCanAdapter` for table `18-10-0004-13` (Canada-wide CPI by product group, 2002=100 baseline). `member_filter` dict selects one series per instance.
+- **Data cache**: `data/statcan/` (gitignored). Scripts: `scripts/fetch_cpi.py` registers 9 Canada-wide CPI series, prints summary.
+- **Notebook**: `implementations/economic_forecasting/cpi_data_exploration.ipynb` — demonstrates registration, cutoff filtering, plotting, YoY change, and `ForecastingTask` definition.
+- **Note on released_at**: StatCan CPI is published ~3 weeks after the reference month. `StatCanAdapter` currently sets `released_at=None`, so `CutoffEnforcer` falls back to `timestamp`. This introduces a slight optimistic bias in backtests; fixing it requires populating `released_at` from StatCan's release schedule.
+
+---
+
 ## Mar 31, 2026 — ForecastingTask / Predictor separation (session 4)
 
 - Clarified that `ForecastingTask` defines the *problem* only: `task_id`, `target_series_id`, `horizon`, `frequency`, `resolution_fn`, `description`. It says nothing about how to solve the problem.

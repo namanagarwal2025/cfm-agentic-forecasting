@@ -29,6 +29,20 @@ sktime remains a valid reference for specific use cases (AutoARIMA, panel foreca
 
 **Google ADK** is the default framework for building forecasting agents. Additional dependencies are introduced only when blocked by ADK's native capabilities.
 
+### Package: aieng-forecasting
+
+The installable library package is named **`aieng-forecasting`**, located at `aieng-forecasting/` in the workspace root. Import namespace: `aieng.forecasting`. It follows the template's uv workspace convention — registered as a workspace member in the root `pyproject.toml`.
+
+Structure:
+```
+aieng-forecasting/aieng/forecasting/
+├── data/               # DataService, SeriesStore, CutoffEnforcer, adapters
+│   └── adapters/       # BaseAdapter, StatCanAdapter, LocalCSVAdapter (future)
+└── evaluation/         # ForecastingTask (evaluation harness, future)
+```
+
+Tests mirror the package under `aieng-forecasting/tests/aieng/forecasting/`.
+
 ### Tracing & Logging: Langfuse
 
 **Langfuse** is selected for tracing. The integration point is at the **Predictor level** — reasoning traces are linked to prediction outcomes via `predictor_id` + `question_id`. This is separate from the evaluation harness's own prediction/resolution/score logging. Implementation details are deferred.
@@ -115,6 +129,10 @@ Two categories of data are treated very differently:
 | **Stochastic context** | news, web search, live indicators | live API calls, agentic tools | Yes — logged via Langfuse |
 
 No outbound calls for historical or resolution data occur during bootcamp sessions or backtests. Adapters are run offline to populate the local store ahead of time.
+
+**Data cache location:** `data/` at the repo root, `.gitignore`'d. The `stats-can` library stores its table cache in `data/statcan/`. Run `scripts/fetch_cpi.py` (or equivalent per-source scripts in `scripts/`) before sessions.
+
+**Data loading scripts:** `scripts/` at the repo root. These are standalone scripts (not part of the installable package) that instantiate adapters and populate the local cache. One script per data source (e.g. `scripts/fetch_cpi.py`, `scripts/fetch_fred.py`).
 
 ### Architecture
 

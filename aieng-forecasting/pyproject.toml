@@ -17,14 +17,18 @@ dev = [
 ]
 
 [project]
-name = "aieng-topic-impl"
+name = "aieng-forecasting"
 version = "0.1.0"
-description = "AI Engineering example implementation"
+description = "Agentic Forecasting — data service and evaluation harness"
 authors = [{name = "Vector AI Engineering", email = "ai_engineering@vectorinstitute.ai"}]
 requires-python = ">=3.11,<4.0"
 readme = "README.md"
 license = "MIT"
-dependencies = []
+dependencies = [
+    "stats-can>=3.1.0",
+    "pandas>=2.0",
+    "pydantic>=2.0",
+]
 
 [tool.hatch.build.targets.sdist]
 include = ["aieng/"]
@@ -56,7 +60,7 @@ extra_checks = true
 
 [tool.ruff]
 include = ["*.py", "pyproject.toml", "*.ipynb"]
-line-length = 88
+line-length = 120
 
 [tool.ruff.format]
 quote-style = "double"
@@ -108,9 +112,9 @@ lines-after-imports = 2
 convention = "numpy"
 
 [tool.ruff.lint.pycodestyle]
-max-doc-length = 88
+max-doc-length = 120
 
 [tool.pytest.ini_options]
 markers = [
-    "integration_test: marks tests as integration tests",
+    "integration_test: marks tests as integration tests (requires network / local data cache)",
 ]

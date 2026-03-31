@@ -24,3 +24,8 @@ wheels/
 **.ipynb_checkpoints
 
 .env
+
+# Local data cache (populated by scripts/fetch_*.py; not committed)
+# The leading slash anchors this to the repo root so it doesn't match
+# source directories like aieng-forecasting/aieng/forecasting/data/
+/data/
