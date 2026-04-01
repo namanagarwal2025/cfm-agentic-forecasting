@@ -6,13 +6,11 @@ UV := uv run
 dev:
 	uv sync --group dev
 
-# Code quality: Black, isort, and mypy. Run `make dev lint` after a fresh clone.
-lint:
-	$(UV) black --check .
-	$(UV) isort --check-only .
-	$(UV) mypy -p aieng
-
-# Apply Black and isort formatting.
+# Apply Black and isort (writes files). Use alone when you want formatting without mypy.
 format:
 	$(UV) black .
 	$(UV) isort .
+
+# Apply Black/isort, then run mypy on `aieng`. Auto-fixes what Black/isort can; mypy only reports.
+lint: format
+	$(UV) mypy -p aieng

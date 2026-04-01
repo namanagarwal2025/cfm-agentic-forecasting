@@ -37,7 +37,7 @@ This project uses [uv](https://github.com/astral-sh/uv) for dependency managemen
 make dev lint
 ```
 
-That runs **Black** (formatting), **isort** (import order), and **mypy** (static typing) against the workspace package. For a quicker check when your environment is already synced, use `make lint`. To apply Black and isort fixes automatically, use `make format`.
+That applies **Black** and **isort** to the repo (fixing formatting where needed), then runs **mypy** on the `aieng` package. For formatting only without mypy, use `make format`. For the full CI-style suite (ruff, nbstripout, etc.), run `uv run pre-commit run --all-files`.
 
 ## License
 *Add appropriate LICENSE for this bootcamp in the main directory.*

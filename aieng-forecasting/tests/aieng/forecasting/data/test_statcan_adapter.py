@@ -14,7 +14,6 @@ from aieng.forecasting.data.adapters.statcan import (
     _read_zip,
 )
 
-
 _MODULE = "aieng.forecasting.data.adapters.statcan"
 
 

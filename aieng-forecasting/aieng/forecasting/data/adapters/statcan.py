@@ -8,7 +8,6 @@ import pandas as pd
 
 from aieng.forecasting.data.adapters.base import BaseAdapter
 
-
 # Canonical column names in StatCan CSV exports (stable across tables).
 _STATCAN_DATE_COL = "REF_DATE"
 _STATCAN_VALUE_COL = "VALUE"
