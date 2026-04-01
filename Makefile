@@ -11,9 +11,8 @@ format:
 	$(UV) ruff format .
 	$(UV) ruff check . --fix --select I
 
-# Run ruff (format + lint) then mypy. Writes formatting fixes in place.
-# A passing `make lint` guarantees CI will accept the code.
-# To fully mirror CI (yaml checks, uv-lock, etc.) run: uv run pre-commit run --all-files
-lint: format
-	$(UV) ruff check .
-	$(UV) mypy -p aieng
+# Full CI mirror: runs the complete pre-commit suite (trailing whitespace,
+# end-of-file fixer, YAML/TOML checks, uv-lock, ruff, mypy, nbqa-ruff).
+# A passing `make lint` means CI will accept the code.
+lint:
+	$(UV) pre-commit run --all-files
