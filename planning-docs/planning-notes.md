@@ -1,3 +1,89 @@
+## Apr 3, 2026 (session 3) — Faithfulness review: TODOs from doc/code audit [Agent]
+
+The following items were found during a thorough cross-check of `technical-design.md`,
+`planning-notes.md`, and all code under `aieng-forecasting/`. Grouped by severity.
+Nothing was edited directly — these are TODOs to address in a future session.
+
+### Category A — Genuine doc/code inconsistencies (fix promptly)
+
+**TODO A1 — `technical-design.md`: stale field names in the Unified Loop section**
+The Prediction bullet in "Unified Loop" reads:
+> `question_id`, `predictor_id`, `issued_at`, `horizon`
+The actual `Prediction` model uses `task_id` (not `question_id`) and `forecast_date`
+(not `horizon`). `as_of` is also missing. Update that bullet to match the real fields.
+
+**TODO A2 — `technical-design.md`: `BacktestResult` code snippet is incomplete**
+The inline Python snippet in the "BacktestResult" subsection (inside "Backtesting:
+User Model and Interfaces") is missing the `skipped_origins: int` field that exists
+in the actual code and matters for understanding skip behaviour. Add it to the snippet.
+
+**TODO A3 — `arima.py` line 125: `datetime.utcnow()` is deprecated**
+`ARIMAPredictor.predict()` uses `datetime.utcnow()`, which is deprecated since
+Python 3.12 and will warn (or break in future versions). Both `backtest.py` and
+`eval.py` already use `datetime.now(tz=timezone.utc).replace(tzinfo=None)`. Fix
+`arima.py` to match.
+
+**TODO A4 — `ForecastingTask.resolution_fn` is defined but never used**
+`ForecastingTask` has a `resolution_fn: str` field (default
+`"observed_value_at_resolution_timestamp"`), but `_resolve()` in `backtest.py`
+ignores it entirely — it always looks up the observed series value directly.
+The field is currently dead config. Either: (a) document it explicitly as a
+planned-but-unimplemented feature in both the task docstring and `technical-design.md`,
+or (b) remove it and add it back when the dispatch is implemented. Leaving it silent
+will confuse implementors who configure it expecting it to do something.
+
+### Category B — Stale documentation (clean up when convenient)
+
+**TODO B1 — `technical-design.md`: package structure diagram missing `eval.py`**
+The diagram under "Package: aieng-forecasting" shows:
+```
+└── evaluation/
+    └── predictors/
+```
+but `evaluation/eval.py` was added. Update the diagram to include it.
+
+**TODO B2 — `technical-design.md`: "Build sequence for this layer" inside the
+Backtesting section is stale planning content**
+The numbered list (`1. ContinuousForecast + Prediction models … 7. End-to-end run`)
+inside the Backtesting subsection was the pre-build plan and is now fully done. The
+authoritative tracker is the ✅-marked Phase 1 Build Sequence at the bottom of the
+document. The inline one adds no information and could confuse readers. Consider
+removing it or replacing it with a pointer to the Phase 1 sequence.
+
+**TODO B3 — `service.py` docstring example uses the old table ID `"18-10-0004-13"`**
+The `DataService` class docstring example shows `table_id="18-10-0004-13"`, but the
+canonical current table ID (corrected Apr 1) is `"18-10-0004-11"`. Both normalise to
+the same zip, but for clarity the example should match what `scripts/fetch_cpi.py`
+actually uses.
+
+**TODO B4 — `ContinuousForecast` docstring overstates the validator constraint**
+The docstring says `quantiles` "Must contain at least the standard levels defined in
+`STANDARD_QUANTILES`", but the actual validator only checks that keys are in `(0, 1)`.
+There is no enforcement of standard level presence. Fix the docstring to match the
+real constraint, or add the enforcement if presence of standard levels is actually
+required.
+
+### Category C — Design debt (low priority, track for later)
+
+**TODO C1 — `EvalSpec.origins()` and `BacktestSpec.origins()` are identical**
+Both classes implement the same striding logic (`pd.date_range` + slice + `to_pydatetime()`).
+Minor DRY violation. Could extract to a shared private utility or a common base class
+when the design stabilises.
+
+**TODO C2 — `_run_eval_loop` is a private function crossing module boundaries**
+`eval.py` imports `_run_eval_loop` from `backtest.py` by its private name. A private
+function in the public API of another module is an unusual pattern that could confuse
+contributors. Consider either making it semi-public (drop the leading underscore) or
+moving it to a shared internal module (e.g. `evaluation/_loop.py`) so the boundary is
+explicit.
+
+**TODO C3 — `eval.py`: `import pandas as pd` is misplaced in the import block**
+`import pandas as pd` appears at line 49, after the pydantic/local imports, instead of
+grouped with the other third-party imports. Doesn't fail lint (isort not configured)
+but is inconsistent with project style.
+
+---
+
 ## Apr 3, 2026 (session 2) — Prediction metadata + eval mode [Agent]
 
 ### What we built
