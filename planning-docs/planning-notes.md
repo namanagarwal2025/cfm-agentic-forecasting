@@ -1,3 +1,44 @@
+## Apr 9, 2026 - Next steps for core and reference implementations [Ethan]
+
+See: https://www.kaggle.com/competitions/gemma-4-good-hackathon/overview/submission-requirements
+Basic idea could be to ask whether fine-tuning a Gemma model could improve its performance in economic forecasting. This is something I want to do for the forecasting bootcamp / project anyway. 
+Could fit in a couple of tracks including
+
+(Impact Track) Global Resilience: Build the systems of tomorrow—from offline, edge-based disaster response to long-range climate mitigation—that anticipate, mitigate, and respond to the world’s most pressing challenges.
+
+(Special Technology Track) Unsloth: For the best fine-tuned Gemma 4 model created using Unsloth, optimized for a specific, impactful task.
+
+I was thinking we could fit this into the replication of the Canada's Food Price report reference experiment / use case. I really like this because it is a concrete real world forecasting task. I know the specifics of how the experiment is set up, historically. We can compare the gamut of methods and see where different LLMPs come in, from small to large models, and with a specific interest in whether fine-tuning LLMPs results in performance improvements, and in what cases? What additional context helps? etc. etc. 
+
+For the bootcamp and wider project I think this would be awesome anyway -- being able to dig into fine-tunable, SOTA open, locally runnable models for a specialized task like forecasting? I think that will add tons of credibility for the bootcamp programming. 
+
+Otherwise, here are my top directions:
+
+For use cases / experiments (separating these from methods):
+- Behnoosh suggested framing a multivari(able/ate) prediction task around S&P500. This opens a very wide range of techniques that could be considered and benchmarked.
+- After an advisory panel meeting in which panelists mentioned interest in being able to predict outcomes of regulatory decisions, I thought a really clean analogy could be predicting BoC interest rate decisions. The fact that it boils down to a numeric series is convenient, but it's really more a good example of a sparsely-resolved, ongoing research and decision process. So it has nice characteristics for the bootcamp. I think this warrants its own reference experiment.
+- As said above, let's have a reference experiment that precisely replicates the CFPR process. Can compare any and all forecasters.
+- Finally, let's work on plugging in directly to Metaculus and/or ForecastBench as a final source of questions that will definitely be geared more towards the purely agentic forecasters.
+
+Now in terms of methods/techniques that we need reference implementations for:
+- Base LLMP using LiteLLM (probably), i.e. the "agentic forecaster" that doesn't really have any tools. It's not really an agent, but more like an LLMFunction. This might mean using LiteLLM directly as opposed to Google ADK, but we'll see. If we can just use ADK in a non-agentic way, to implement a more basic LLMP, then sure. But I really think we should make sure we can have a minimal LLMP with no hidden injections/sideeffects of using an agent SDK. 
+- Determine how we're going to interface with model fine tuning. To start with, I'd think the best thing to do is just add code to slice off the required I/O examples for finetuning up to a given cutoff point. I don't know exactly how yet but I think tools/packages like Unsloth will be able to help us connect the fine-tuning piece end-to-end. Then it just becomes another model that we need to do timeseries cross validation for, etc. etc. 
+- Then we need to build what we intend to be our "frontier agent" -- which will provide a template for a powerful, modern agent. I am leaning towards building this really as a coding agent with skills over tools. I really like the idea of an agent that can not only retrieve data but can also use skills (and write/exec code) to produce its own numerical forecasts or do other kinds of data analysis before responding. The agent template can be quite high level, and customizing it could end up being a key activity during the bootcamp. 
+- Test how far we can go with an "AutoML" baseline using Darts or similar packages. We'll want to be able to easily apply this to all our time series experiments. 
+- Make sure we include support for some time series foundation models
+
+So to summarize on the methods part, it looks like we want:
+- Base LLMP
+- Fine-tunable LLMP
+- Frontier Agentic Forecaster Base and Implementations
+- AutoML and underlying methods via package like Darts or similar
+- Time series foundation model
+
+Maybe we'll call those reference methods and have a separate concept for reference "experiments" or "use cases", which are meant to be more about exploring the actual prediction task. I still want to make sure we're not doing silly things like superfluous wrappers around Darts code (or Google ADK code, or LiteLLM, etc.)
+
+
+
+
 ## Apr 7, 2026 — Implementations architecture: follow-up decisions [Ethan & Agent]
 
 ### Decided: remove `darts_arima.py`
