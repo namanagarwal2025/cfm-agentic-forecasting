@@ -98,7 +98,7 @@ The current predictor library has one variant: `DartsAutoARIMAPredictor`. Before
 **Owner:** TBD (economics interest helpful; can work independently of T1–T3)
 
 **Context:**
-The current evaluation harness only supports `ContinuousForecast`. The project charter calls for a second paradigm: discrete event / binary forecasting. The Bank of Canada interest rate decision is the ideal first reference task — it has a well-defined, sparsely-resolved binary structure (cut / hold / hike), historical data is publicly available, and it is directly relevant to bootcamp sponsors. This also lays the groundwork for Metaculus integration.
+The current evaluation harness only supports `ContinuousForecast`. The project charter calls for a second paradigm: discrete event / binary forecasting. The Bank of Canada interest rate decision is the ideal first reference task — it has a well-defined, sparsely-resolved binary structure (cut / hold / hike), historical data is publicly available, and it is directly relevant to bootcamp sponsors. This lays the groundwork for ForecastBench integration (H3), which is the primary source of discrete event questions and resolutions for the bootcamp. Direct Metaculus API integration remains a future option but is not required.
 
 **Scope:**
 - `BinaryForecast` Pydantic model (probability estimate, follows Metaculus conventions)
@@ -175,6 +175,23 @@ These tasks are scoped and understood but not yet in an active sprint. Reorder p
 
 ---
 
+### H3 — ForecastBench Integration *(next priority after T4)*
+
+**Theme:** Data / Use case
+**Estimated effort:** ~1 week
+**Dependencies:** T4 (binary evaluation harness)
+**Owner:** TBD
+
+Integrate ForecastBench as the primary source of discrete event forecasting questions and resolutions. ForecastBench provides direct download access under CC-BY-SA-4.0 — no outreach or API key required. Data includes historical questions, resolutions, and published community predictions from Metaculus, FRED, Yahoo Finance, and Rand Forecasting. T4's BoC reference experiment provides the binary evaluation harness; this task plugs in a curated question set from ForecastBench on top of it.
+
+ForecastBench data is not a time series and does not flow through the `ProviderAdapter` / `SeriesStore` path. Integration will be a separate loader that populates questions and resolutions into the Pass 2 binary evaluation infrastructure.
+
+Direct Metaculus API integration remains a future option (e.g. for live question feeds) but is no longer needed for a reference experiment.
+
+**Decision date:** Apr 10, 2026.
+
+---
+
 ### H1 — S&P500 / Equities Reference Experiment (Behnoosh)
 
 **Theme:** Use case / Reference experiment
@@ -194,23 +211,6 @@ Implement a reference experiment for S&P500 and/or Canadian equities using the y
 **Owner:** Behnoosh
 
 NYISO (New York Independent System Operator) replaces IESO (Ontario electricity) as the energy dataset. Behnoosh identified it as a better fit for classical multivariate forecasting. Define hourly demand/price `ForecastingTask` variants, NYISO data adapter, reference spec, demo notebook. By the time this is tackled, the use-case scaffolding pattern will be well-established and most of the effort is data ingestion + task framing.
-
----
-
-### H3 — ForecastBench Integration
-
-**Theme:** Data / Use case
-**Estimated effort:** ~1 week
-**Dependencies:** T4 (binary evaluation harness)
-**Owner:** TBD
-
-Integrate ForecastBench as the primary source of discrete event forecasting questions and resolutions. ForecastBench provides direct download access under CC-BY-SA-4.0 — no outreach or API key required. Data includes historical questions, resolutions, and published community predictions from Metaculus, FRED, Yahoo Finance, and Rand Forecasting. T4's BoC reference experiment provides the binary evaluation harness; this task plugs in a curated question set from ForecastBench on top of it.
-
-ForecastBench data is not a time series and does not flow through the `ProviderAdapter` / `SeriesStore` path. Integration will be a separate loader that populates questions and resolutions into the Pass 2 binary evaluation infrastructure.
-
-Direct Metaculus API integration remains a future option (e.g. for live question feeds) but is no longer needed for a reference experiment.
-
-**Decision date:** Apr 10, 2026.
 
 ---
 
