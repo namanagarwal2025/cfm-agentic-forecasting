@@ -9,6 +9,10 @@ draws from the predictive distribution).  Point forecast is the median;
 quantiles are computed at :data:`~aieng.forecasting.evaluation.prediction.STANDARD_QUANTILES`
 levels.
 
+For multi-horizon tasks, the model is fitted once to ``n = max(task.horizons)``
+and samples are extracted at each requested horizon index from the resulting
+trajectory. This is more efficient than fitting once per horizon.
+
 Usage::
 
     from methods.darts_arima import DartsAutoARIMAPredictor
@@ -40,7 +44,9 @@ class DartsAutoARIMAPredictor(Predictor):
     """Probabilistic predictor wrapping Darts AutoARIMA (univariate).
 
     Fits AutoARIMA on the target series history available at the forecast
-    origin, then generates a probabilistic forecast via Monte Carlo sampling.
+    origin, then generates a probabilistic trajectory via Monte Carlo sampling.
+    One :class:`~aieng.forecasting.evaluation.prediction.Prediction` is
+    returned per horizon step declared in ``task.horizons``.
 
     Parameters
     ----------
@@ -53,6 +59,9 @@ class DartsAutoARIMAPredictor(Predictor):
     -----
     - **Darts AutoARIMA** requires ``statsforecast`` (already a project
       dependency).  No additional install is needed.
+    - AutoARIMA can be slow (seconds to tens of seconds per origin). For rapid
+      iteration use :class:`~methods.darts_regression.DartsLinearRegressionPredictor`
+      instead.
     """
 
     def __init__(self, num_samples: int = 500) -> None:
@@ -63,23 +72,23 @@ class DartsAutoARIMAPredictor(Predictor):
         """Return a stable string identifier for this predictor."""
         return "darts_autoarima"
 
-    def predict(self, task: ForecastingTask, context: ForecastContext) -> Prediction:
-        """Produce a probabilistic AutoARIMA forecast.
+    def predict(self, task: ForecastingTask, context: ForecastContext) -> list[Prediction]:
+        """Produce probabilistic AutoARIMA forecasts for every horizon in the task.
 
         Parameters
         ----------
         task : ForecastingTask
-            Defines the target series, horizon, and frequency.
+            Defines the target series, horizons, and frequency.
         context : ForecastContext
             Cutoff-scoped data view.  All series returned respect
             ``context.as_of``.
 
         Returns
         -------
-        Prediction
-            A ``ContinuousForecast`` with ``point_forecast`` equal to the
-            median of the predictive sample, and quantiles at
-            :data:`~aieng.forecasting.evaluation.prediction.STANDARD_QUANTILES`.
+        list[Prediction]
+            One ``ContinuousForecast`` per horizon step in ``task.horizons``,
+            with ``point_forecast`` equal to the median of the predictive
+            sample at that step.
         """
         from darts import TimeSeries  # noqa: PLC0415
         from darts.models import AutoARIMA  # noqa: PLC0415  # type: ignore[import-untyped]
@@ -97,29 +106,33 @@ class DartsAutoARIMAPredictor(Predictor):
         model = AutoARIMA()
         model.fit(ts)
 
+        # Fit once to max horizon; extract samples at each requested step.
+        # all_values() shape: (n_steps, n_components, n_samples), 0-indexed.
         forecast_ts: Any = model.predict(
             n=task.horizon,
             num_samples=self._num_samples,
         )
 
-        # all_values() shape: (horizon, n_components, n_samples).
-        # Take the final step for the single-step-ahead horizon target.
-        samples: np.ndarray = forecast_ts.all_values()[-1, 0, :]
+        offset = pd.tseries.frequencies.to_offset(task.frequency)
+        issued_at = datetime.now(tz=timezone.utc).replace(tzinfo=None)
+        predictions: list[Prediction] = []
 
-        point_forecast = float(np.median(samples))
-        quantiles = {q: float(np.quantile(samples, q)) for q in STANDARD_QUANTILES}
+        for h in task.horizons:
+            samples: np.ndarray = forecast_ts.all_values()[h - 1, 0, :]
+            payload = ContinuousForecast(
+                point_forecast=float(np.median(samples)),
+                quantiles={q: float(np.quantile(samples, q)) for q in STANDARD_QUANTILES},
+            )
+            forecast_date: datetime = (pd.Timestamp(context.as_of) + offset * h).to_pydatetime()
+            predictions.append(
+                Prediction(
+                    predictor_id=self.predictor_id,
+                    task_id=task.task_id,
+                    issued_at=issued_at,
+                    as_of=context.as_of,
+                    forecast_date=forecast_date,
+                    payload=payload,
+                )
+            )
 
-        forecast_date: datetime = (
-            pd.Timestamp(context.as_of) + pd.tseries.frequencies.to_offset(task.frequency) * task.horizon
-        ).to_pydatetime()
-
-        payload = ContinuousForecast(point_forecast=point_forecast, quantiles=quantiles)
-
-        return Prediction(
-            predictor_id=self.predictor_id,
-            task_id=task.task_id,
-            issued_at=datetime.now(tz=timezone.utc).replace(tzinfo=None),
-            as_of=context.as_of,
-            forecast_date=forecast_date,
-            payload=payload,
-        )
+        return predictions

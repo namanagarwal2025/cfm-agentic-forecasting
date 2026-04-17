@@ -20,6 +20,14 @@ The point forecast is the sample median; quantiles at
 :data:`~aieng.forecasting.evaluation.prediction.STANDARD_QUANTILES` are read
 off the sample distribution.
 
+Multi-horizon support
+---------------------
+Both predictors honour ``task.horizons``.  The model is fitted once to
+``n = max(task.horizons)`` and samples are extracted at each requested horizon
+index from the resulting trajectory array.  This means a 12-step trajectory
+costs the same as a single step in terms of fitting time — only the sample
+extraction loop changes.
+
 LightGBM notes
 --------------
 On macOS the LightGBM wheel requires an OpenMP runtime (``brew install libomp``).
@@ -44,7 +52,7 @@ Usage
     pred = DartsLinearRegressionPredictor(
         lags=12,
         lags_past_covariates=12,
-        covariate_series_ids=["fred_canada_us_exchange_rate", "fred_sp100_volatility_vxo"],
+        covariate_series_ids=["fred_canada_us_exchange_rate", "fred_canada_10yr_bond_yield"],
     )
 """
 
@@ -68,7 +76,19 @@ from aieng.forecasting.evaluation.task import ForecastingTask
 # Quantile levels Darts fits internally.  A denser grid than STANDARD_QUANTILES
 # so sample-based quantile recovery at the reporting levels is stable.
 _TRAINING_QUANTILES: list[float] = [
-    0.025, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 0.975,
+    0.025,
+    0.05,
+    0.1,
+    0.2,
+    0.3,
+    0.4,
+    0.5,
+    0.6,
+    0.7,
+    0.8,
+    0.9,
+    0.95,
+    0.975,
 ]
 
 
@@ -136,34 +156,6 @@ def _compute_forecast_payload(
     return ContinuousForecast(point_forecast=point_forecast, quantiles=quantiles)
 
 
-def _forecast_date_for(task: ForecastingTask, as_of: datetime) -> datetime:
-    """Compute the timestamp being predicted (``as_of + horizon`` steps)."""
-    return (
-        pd.Timestamp(as_of)
-        + pd.tseries.frequencies.to_offset(task.frequency) * task.horizon
-    ).to_pydatetime()
-
-
-def _build_prediction(
-    *,
-    predictor_id: str,
-    task: ForecastingTask,
-    context: ForecastContext,
-    payload: ContinuousForecast,
-    metadata: dict[str, Any] | None = None,
-) -> Prediction:
-    """Assemble a ``Prediction`` record with the standard metadata fields."""
-    return Prediction(
-        predictor_id=predictor_id,
-        task_id=task.task_id,
-        issued_at=datetime.now(tz=timezone.utc).replace(tzinfo=None),
-        as_of=context.as_of,
-        forecast_date=_forecast_date_for(task, context.as_of),
-        payload=payload,
-        metadata=metadata or {},
-    )
-
-
 def _fit_and_sample(
     *,
     model: _DartsRegressionModel,
@@ -171,8 +163,8 @@ def _fit_and_sample(
     context: ForecastContext,
     covariate_series_ids: list[str] | None,
     num_samples: int,
-) -> np.ndarray:
-    """Fit a Darts regression model and return horizon-last samples.
+) -> dict[int, np.ndarray]:
+    """Fit a Darts regression model and return horizon-indexed sample arrays.
 
     Parameters
     ----------
@@ -180,8 +172,10 @@ def _fit_and_sample(
         A Darts regression model already configured with
         ``likelihood="quantile"`` and appropriate lag parameters.
     task :
-        The forecasting task; supplies ``target_series_id``, ``horizon`` and
-        ``frequency``.
+        The forecasting task; supplies ``target_series_id``, ``horizons`` and
+        ``frequency``.  The model is fitted to ``n = task.horizon``
+        (i.e. ``max(task.horizons)``) so every requested step is available in
+        the trajectory.
     context :
         Cutoff-scoped data view.  All series returned respect
         ``context.as_of``.
@@ -193,25 +187,49 @@ def _fit_and_sample(
 
     Returns
     -------
-    np.ndarray
-        1-D array of ``num_samples`` draws from the distribution at the final
-        forecast step (``as_of + horizon`` at ``task.frequency``).
+    dict[int, np.ndarray]
+        Mapping from horizon step ``h`` → 1-D array of ``num_samples`` draws
+        from the distribution at that step.  Only the steps listed in
+        ``task.horizons`` are included.
     """
     target_df = context.get_series(task.target_series_id)
     target_ts = _to_timeseries(target_df, task.frequency)
 
     past_covariates: Any | None = None
     if covariate_series_ids:
-        past_covariates = _build_past_covariates(
-            context, covariate_series_ids, task.frequency
-        )
+        past_covariates = _build_past_covariates(context, covariate_series_ids, task.frequency)
 
     model.fit(target_ts, past_covariates=past_covariates)
+    # Fit once to the outermost horizon; all steps 1..horizon are available.
     forecast_ts = model.predict(n=task.horizon, num_samples=num_samples)
 
-    # all_values() shape: (horizon, n_components, n_samples).
-    # We report the single-step-ahead quantiles at the final horizon step.
-    return np.asarray(forecast_ts.all_values()[-1, 0, :])
+    # all_values() shape: (n_steps, n_components, n_samples), 0-indexed.
+    return {h: np.asarray(forecast_ts.all_values()[h - 1, 0, :]) for h in task.horizons}
+
+
+def _build_predictions(
+    *,
+    predictor_id: str,
+    task: ForecastingTask,
+    context: ForecastContext,
+    samples_by_horizon: dict[int, np.ndarray],
+    metadata: dict[str, Any] | None = None,
+) -> list[Prediction]:
+    """Assemble one ``Prediction`` per horizon from per-horizon sample arrays."""
+    offset = pd.tseries.frequencies.to_offset(task.frequency)
+    issued_at = datetime.now(tz=timezone.utc).replace(tzinfo=None)
+    return [
+        Prediction(
+            predictor_id=predictor_id,
+            task_id=task.task_id,
+            issued_at=issued_at,
+            as_of=context.as_of,
+            forecast_date=(pd.Timestamp(context.as_of) + offset * h).to_pydatetime(),
+            payload=_compute_forecast_payload(samples),
+            metadata=metadata or {},
+        )
+        for h, samples in samples_by_horizon.items()
+    ]
 
 
 class DartsLinearRegressionPredictor(Predictor):
@@ -220,6 +238,11 @@ class DartsLinearRegressionPredictor(Predictor):
     Fits a per-target quantile regression on lagged target values (and,
     optionally, lagged covariate values) at every forecast origin, then draws
     ``num_samples`` from the implied predictive distribution at predict time.
+
+    Returns one :class:`~aieng.forecasting.evaluation.prediction.Prediction`
+    per horizon step in ``task.horizons``.  The model is fitted once to the
+    outermost horizon so the cost is the same regardless of how many horizon
+    steps are requested.
 
     Parameters
     ----------
@@ -256,21 +279,19 @@ class DartsLinearRegressionPredictor(Predictor):
         suffix = "_cov" if self._covariate_series_ids else ""
         return f"darts_linreg{suffix}"
 
-    def predict(self, task: ForecastingTask, context: ForecastContext) -> Prediction:
-        """Produce a probabilistic linear-regression forecast."""
+    def predict(self, task: ForecastingTask, context: ForecastContext) -> list[Prediction]:
+        """Produce probabilistic linear-regression forecasts for every horizon in the task."""
         from darts.models import LinearRegressionModel  # noqa: PLC0415
 
         model = LinearRegressionModel(
             lags=self._lags,
-            lags_past_covariates=(
-                self._lags_past_covariates if self._covariate_series_ids else None
-            ),
+            lags_past_covariates=(self._lags_past_covariates if self._covariate_series_ids else None),
             output_chunk_length=task.horizon,
             likelihood="quantile",
             quantiles=_TRAINING_QUANTILES,
         )
 
-        samples = _fit_and_sample(
+        samples_by_horizon = _fit_and_sample(
             model=model,
             task=task,
             context=context,
@@ -278,11 +299,11 @@ class DartsLinearRegressionPredictor(Predictor):
             num_samples=self._num_samples,
         )
 
-        return _build_prediction(
+        return _build_predictions(
             predictor_id=self.predictor_id,
             task=task,
             context=context,
-            payload=_compute_forecast_payload(samples),
+            samples_by_horizon=samples_by_horizon,
             metadata={"covariates": self._covariate_series_ids or []},
         )
 
@@ -293,6 +314,9 @@ class DartsLightGBMPredictor(Predictor):
     Fits a per-target quantile-regression gradient booster on lagged target
     and covariate values.  Predicted distributions are drawn via Darts'
     Monte Carlo sampling over the fitted quantile regressors.
+
+    Returns one :class:`~aieng.forecasting.evaluation.prediction.Prediction`
+    per horizon step in ``task.horizons``.
 
     Parameters
     ----------
@@ -343,22 +367,20 @@ class DartsLightGBMPredictor(Predictor):
         suffix = "_cov" if self._covariate_series_ids else ""
         return f"darts_lightgbm{suffix}"
 
-    def predict(self, task: ForecastingTask, context: ForecastContext) -> Prediction:
-        """Produce a probabilistic LightGBM forecast."""
+    def predict(self, task: ForecastingTask, context: ForecastContext) -> list[Prediction]:
+        """Produce probabilistic LightGBM forecasts for every horizon in the task."""
         from darts.models import LightGBMModel  # noqa: PLC0415
 
         model = LightGBMModel(
             lags=self._lags,
-            lags_past_covariates=(
-                self._lags_past_covariates if self._covariate_series_ids else None
-            ),
+            lags_past_covariates=(self._lags_past_covariates if self._covariate_series_ids else None),
             output_chunk_length=task.horizon,
             likelihood="quantile",
             quantiles=_TRAINING_QUANTILES,
             **self._lgbm_kwargs,
         )
 
-        samples = _fit_and_sample(
+        samples_by_horizon = _fit_and_sample(
             model=model,
             task=task,
             context=context,
@@ -366,10 +388,10 @@ class DartsLightGBMPredictor(Predictor):
             num_samples=self._num_samples,
         )
 
-        return _build_prediction(
+        return _build_predictions(
             predictor_id=self.predictor_id,
             task=task,
             context=context,
-            payload=_compute_forecast_payload(samples),
+            samples_by_horizon=samples_by_horizon,
             metadata={"covariates": self._covariate_series_ids or []},
         )

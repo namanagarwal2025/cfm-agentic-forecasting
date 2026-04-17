@@ -143,16 +143,20 @@ class BacktestResult(BaseModel):
     predictor_id : str
         Identifier for the predictor that produced these forecasts.
     predictions : list[Prediction]
-        One ``Prediction`` per evaluated forecast origin, in chronological order.
+        Flat list of scored predictions. For single-horizon tasks this is one
+        entry per evaluated origin; for multi-horizon tasks it is
+        ``origins_scored × len(task.horizons)`` (minus any future steps that
+        could not yet be resolved). Ordered by origin then by horizon.
     scores : list[float]
-        CRPS score for each prediction, in the same order as ``predictions``.
+        CRPS score for each prediction, parallel to ``predictions``.
         Lower is better.
     mean_crps : float
-        Mean CRPS across all evaluated origins.
+        Mean CRPS across all scored (origin, horizon) pairs.
     ran_at : datetime
         UTC wall-clock time when the backtest was executed.
     skipped_origins : int
-        Number of candidate origins skipped due to insufficient warmup history.
+        Number of candidate origins where no horizon could be scored (either
+        warmup not met, or all forecast dates were unresolvable).
     """
 
     spec: BacktestSpec
@@ -283,16 +287,20 @@ def run_eval_loop(
                 skipped += 1
                 continue
 
-        prediction = predictor.predict(task, ctx)
+        origin_predictions = predictor.predict(task, ctx)
 
-        actual = _resolve(task, prediction.forecast_date, data_service)
-        if actual is None:
+        origin_scored = 0
+        for pred in origin_predictions:
+            actual = _resolve(task, pred.forecast_date, data_service)
+            if actual is None:
+                continue
+            score = _crps_for_prediction(pred, actual)
+            predictions.append(pred)
+            scores.append(score)
+            origin_scored += 1
+
+        if origin_scored == 0:
             skipped += 1
-            continue
-
-        score = _crps_for_prediction(prediction, actual)
-        predictions.append(prediction)
-        scores.append(score)
 
     if not predictions:
         raise ValueError(
@@ -412,7 +420,9 @@ class MultiTargetBacktestSpec(BaseModel):
     ...     print(f"{task_id}: mean CRPS = {result.mean_crps:.4f}")
     """
 
-    tasks: list[ForecastingTask] = Field(min_length=1, description="Prediction problems; all must share the same frequency.")
+    tasks: list[ForecastingTask] = Field(
+        min_length=1, description="Prediction problems; all must share the same frequency."
+    )
     start: datetime = Field(description="First candidate forecast origin.")
     end: datetime = Field(description="Last candidate forecast origin (inclusive).")
     stride: int = Field(default=1, ge=1, description="Step size between origins in task-frequency units.")
@@ -425,8 +435,7 @@ class MultiTargetBacktestSpec(BaseModel):
         frequencies = {t.frequency for t in self.tasks}
         if len(frequencies) > 1:
             raise ValueError(
-                f"All tasks in a MultiTargetBacktestSpec must share the same frequency. "
-                f"Found: {sorted(frequencies)}"
+                f"All tasks in a MultiTargetBacktestSpec must share the same frequency. Found: {sorted(frequencies)}"
             )
         return self
 
@@ -482,7 +491,4 @@ def multi_backtest(
     >>> for task_id, result in results.items():
     ...     print(f"{task_id}: {result.mean_crps:.4f}")
     """
-    return {
-        single_spec.task.task_id: backtest(predictor, single_spec, data_service)
-        for single_spec in spec.specs()
-    }
+    return {single_spec.task.task_id: backtest(predictor, single_spec, data_service) for single_spec in spec.specs()}

@@ -149,7 +149,9 @@ A `ForecastingTask` is a Pydantic model that defines a prediction *problem*. It 
 Fields:
 - `task_id` — unique identifier
 - `target_series_id` — the series being forecast (key into `SeriesStore`)
-- `horizon` — number of steps ahead
+- `horizons: list[int]` — one or more horizon steps to forecast. `horizon h` means `h` frequency-units ahead of the origin. Single-step tasks use `horizons=[N]`. Multi-step trajectory tasks (e.g. CFPR's 12-month Jan–Dec window) list all required steps explicitly.
+  - **Backward compat:** `horizon: N` (singular int) is still accepted everywhere — both as a Python keyword argument and in YAML — and is silently coerced to `horizons: [N]` by a `model_validator`. Existing specs and code continue to work without changes.
+  - **`task.horizon` property:** returns `max(task.horizons)`. Darts models use this as their `n` (outermost forecast step); single-horizon tasks get the single value.
 - `frequency` — temporal resolution (e.g., `"MS"` for month-start, `"h"` for hourly)
 - `resolution_fn` — how to look up ground truth; defaults to `"observed_value_at_resolution_timestamp"`. **Currently a placeholder** — the harness always uses the default strategy regardless of this value. Dispatch on alternative strategies is deferred; the field is defined now so specs carry the intent and no breaking change is required when dispatch is added.
 - `description` — human-readable description of the task
@@ -167,18 +169,26 @@ Key design properties:
 - **Additive, not a replacement**: `DataService` remains as the registration and management layer (used by setup scripts and notebooks). `ForecastContext` is its companion for the predictor interface.
 - **Mode-agnostic**: the harness creates a `ForecastContext` via `DataService.context(as_of)` for each backtest origin. In live evaluation, the same factory is called with the current date. The predictor interface is identical in both modes.
 
-**Predictor interface:**
+**Predictor interface — multi-horizon (breaking change, Apr 2026):**
 ```python
-def predict(task: ForecastingTask, context: ForecastContext) -> Prediction:
+def predict(task: ForecastingTask, context: ForecastContext) -> list[Prediction]:
     series = context.get_series(task.target_series_id)
     # series contains only observations available as of context.as_of
+    # Return one Prediction per horizon step in task.horizons.
     ...
 ```
+
+Single-horizon tasks return a one-element list. Multi-horizon tasks (e.g. a 12-step CFPR trajectory) return one element per step, all produced in a single model call. The evaluation harness scores each element independently and accumulates a flat `BacktestResult`.
+
+**Rationale:** trajectory-based models (Darts, LLMs) naturally produce a coherent full-horizon path in one call. Forcing `N` separate single-step calls would be both inefficient and architecturally incoherent — especially for LLMs whose reasoning is over the whole trajectory. `list[Prediction]` makes single- and multi-horizon a natural special case of the same interface.
 
 **Harness pattern:**
 ```python
 ctx = data_service.context(as_of=origin_date)
-prediction = predictor.predict(task, ctx)
+preds = predictor.predict(task, ctx)  # list[Prediction]
+for pred in preds:
+    actual = resolve(pred.forecast_date)
+    score = crps(pred, actual)
 ```
 
 **Why not pass `DataService` + `as_of` separately?** Passing them separately makes cutoff enforcement opt-in — a predictor must remember to pass `as_of` on every query. `ForecastContext` makes it structurally impossible to forget.
@@ -501,27 +511,28 @@ Shared abstractions are extracted after both passes are working — not designed
 ### Phase 1 Build Sequence (Pass 1) — Status
 
 1. ✅ `ContinuousForecast` + `Prediction` Pydantic models — YAML-serializable
-2. ✅ `Predictor` ABC — `predict(task: ForecastingTask, context: ForecastContext) -> Prediction`
-3. ✅ `DartsAutoARIMAPredictor` (Darts AutoARIMA, 500 Monte Carlo samples) — defined inline in `implementations/experiments/economic_forecasting/cpi_backtest_demo.ipynb`; moving to `implementations/methods/darts_arima.py` is tracked in the backlog (T3)
+2. ✅ `Predictor` ABC — `predict(task: ForecastingTask, context: ForecastContext) -> list[Prediction]` (**Apr 2026:** breaking change from `-> Prediction`; now returns one `Prediction` per horizon step)
+3. ✅ `DartsAutoARIMAPredictor` in `implementations/methods/darts_arima.py` — univariate Darts `AutoARIMA`; fits once to `n=max(task.horizons)`, extracts samples at each requested horizon step
 4. ✅ `BacktestSpec` + `BacktestResult` Pydantic models
-5. ✅ `backtest()` function — iterates origins, scores with CRPS via `properscoring`
+5. ✅ `backtest()` function — iterates origins; for each origin, scores all `list[Prediction]` returned by the predictor; flat `(origin × horizon)` result list
 6. ✅ `released_at` fix for StatCan CPI (21-day approximation)
-7. ✅ Reference spec YAML (`reference_specs/cpi_allitems_12m.yaml`) — Jan/Jul origins, 2000–2026
+7. ✅ Reference spec YAMLs (`reference_specs/`) — use `horizons: [N]` (canonical); old `horizon: N` still accepted via backward-compat validator
 8. ✅ Demo notebook (`implementations/experiments/economic_forecasting/cpi_backtest_demo.ipynb`)
 9. ✅ `Prediction.metadata` — optional `dict[str, Any]` escape hatch for predictor side-channel data
 10. ✅ Eval mode — `EvalSpec`, `EvalResult`, `EvalTracker`, `EvalBudgetExceededError`, `evaluate()`, reference spec `reference_specs/cpi_allitems_eval_2yr.yaml`
-11. ✅ `LastValuePredictor` — naive last-value baseline in `implementations/methods/naive.py`; first method in the importable `methods` package; also the annotated `Predictor` interface reference
-12. ✅ Two-predictor comparison in demo notebook — `LastValuePredictor` vs `DartsAutoARIMAPredictor` on `cpi_allitems_12m`, with per-origin CRPS table and comparison chart
+11. ✅ `LastValuePredictor` — naive last-value baseline in `implementations/methods/naive.py`; returns one `Prediction` per horizon step (same flat value, persistence assumption)
+12. ✅ Two-predictor comparison in demo notebook — `LastValuePredictor` vs `DartsAutoARIMAPredictor` on `cpi_allitems_12m`
 
 13. ✅ `MultiTargetBacktestSpec` + `multi_backtest()` — evaluate one predictor across many tasks with a shared window; in `backtest.py`
 14. ✅ `MultiTargetEvalSpec` + `multi_evaluate()` — budget-limited multi-target eval; single call costs one budget run; in `eval.py`
-15. ✅ `FREDAdapter` — fetches any FRED series via `fredapi`; `released_at = timestamp`; API key from `FRED_API_KEY` env var; in `data/adapters/fred.py`
-16. ✅ `scripts/fetch_fred.py` — populates 7 FRED covariate series for the food price experiment
-17. ✅ `DartsAutoARIMAPredictor` in `implementations/methods/darts_arima.py` — univariate Darts `AutoARIMA` only (no exogenous covariate parameters; the underlying model does not accept `past_covariates` in this stack)
-18. ✅ CFPR / food price experiment — `implementations/experiments/food_price_forecasting/` with README, exploration notebook, 18m and 3m experiment notebooks
-19. ✅ Reference specs for food CPI — `reference_specs/food_cpi/` (4 YAML files: 18m + 3m × backtest + eval)
+15. ✅ `FREDAdapter` — fetches any FRED series via `fredapi`; disk-caching to `.parquet`; API key from `FRED_API_KEY` env var; in `data/adapters/fred.py`
+16. ✅ `scripts/fetch_fred.py` — populates 5 monthly FRED covariate series for the food price experiment
+17. ✅ `DartsLinearRegressionPredictor` + `DartsLightGBMPredictor` in `implementations/methods/darts_regression.py` — per-target quantile regression; optional past covariates; multi-horizon: `_fit_and_sample` returns `dict[int, ndarray]` keyed by horizon step
+18. ✅ CFPR experiment — `implementations/experiments/food_price_forecasting/food_cpi_experiment.ipynb` — single-category CFPR analysis with 12-step trajectory (horizons 6–17), avg/avg YoY, fast-mode flag, disaggregated error plots
+19. ✅ Reference specs for food CPI — `reference_specs/food_cpi/` (backtest + eval YAMLs, `horizons: [18]`)
+20. ✅ `ForecastingTask.horizons: list[int]` — multi-horizon task definition; `horizon` (singular) accepted for backward compat; `task.horizon` property = `max(task.horizons)`
 
-**Next:** Pass 2 (ForecastBench discrete event questions / `BinaryForecast` / BoC reference experiment); see backlog T4. Also: expand `methods/` with `SeasonalNaivePredictor`, a second Darts model, and a foundation model predictor (T3).
+**Next:** Pass 2 (ForecastBench discrete event questions / `BinaryForecast` / BoC reference experiment); see backlog T4. Also: expand `methods/` with `SeasonalNaivePredictor` and a foundation model predictor (T3).
 
 ### Long-Term Vision
 

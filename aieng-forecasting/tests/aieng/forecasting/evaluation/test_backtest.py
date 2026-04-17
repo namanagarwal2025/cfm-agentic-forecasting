@@ -29,7 +29,7 @@ def _make_task(horizon: int = 12) -> ForecastingTask:
     return ForecastingTask(
         task_id="test_task",
         target_series_id="test_series",
-        horizon=horizon,
+        horizons=[horizon],
         frequency="MS",
         description="Test task",
     )
@@ -67,16 +67,19 @@ class ConstantPredictor(Predictor):
     def predictor_id(self) -> str:
         return "constant"
 
-    def predict(self, task: ForecastingTask, context: ForecastContext) -> Prediction:
-        forecast_date = (pd.Timestamp(context.as_of) + pd.DateOffset(months=task.horizon)).to_pydatetime()
-        return Prediction(
-            predictor_id=self.predictor_id,
-            task_id=task.task_id,
-            issued_at=datetime(2024, 1, 1),
-            as_of=context.as_of,
-            forecast_date=forecast_date,
-            payload=_make_forecast(self._value),
-        )
+    def predict(self, task: ForecastingTask, context: ForecastContext) -> list[Prediction]:
+        offset = pd.tseries.frequencies.to_offset(task.frequency)
+        return [
+            Prediction(
+                predictor_id=self.predictor_id,
+                task_id=task.task_id,
+                issued_at=datetime(2024, 1, 1),
+                as_of=context.as_of,
+                forecast_date=(pd.Timestamp(context.as_of) + offset * h).to_pydatetime(),
+                payload=_make_forecast(self._value),
+            )
+            for h in task.horizons
+        ]
 
 
 def _build_data_service(series_start: str = "2000-01-01", series_end: str = "2026-01-01") -> DataService:
@@ -140,6 +143,7 @@ class TestBacktestSpec:
         dumped = spec.model_dump()
         restored = BacktestSpec.model_validate(dumped)
         assert restored.task.task_id == spec.task.task_id
+        assert restored.task.horizons == spec.task.horizons
         assert restored.stride == spec.stride
 
 

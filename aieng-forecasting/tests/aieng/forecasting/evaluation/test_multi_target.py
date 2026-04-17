@@ -33,7 +33,7 @@ def _make_task(task_id: str = "task_a", series_id: str = "series_a") -> Forecast
     return ForecastingTask(
         task_id=task_id,
         target_series_id=series_id,
-        horizon=12,
+        horizons=[12],
         frequency="MS",
         description=f"Test task {task_id}",
     )
@@ -66,20 +66,23 @@ class ConstantPredictor(Predictor):
     def predictor_id(self) -> str:
         return "constant"
 
-    def predict(self, task: ForecastingTask, context: ForecastContext) -> Prediction:
-        forecast_date = (pd.Timestamp(context.as_of) + pd.DateOffset(months=task.horizon)).to_pydatetime()
+    def predict(self, task: ForecastingTask, context: ForecastContext) -> list[Prediction]:
+        offset = pd.tseries.frequencies.to_offset(task.frequency)
         point = self._value
-        return Prediction(
-            predictor_id=self.predictor_id,
-            task_id=task.task_id,
-            issued_at=datetime(2024, 1, 1),
-            as_of=context.as_of,
-            forecast_date=forecast_date,
-            payload=ContinuousForecast(
-                point_forecast=point,
-                quantiles={q: point + (q - 0.5) * 5 for q in STANDARD_QUANTILES},
-            ),
-        )
+        return [
+            Prediction(
+                predictor_id=self.predictor_id,
+                task_id=task.task_id,
+                issued_at=datetime(2024, 1, 1),
+                as_of=context.as_of,
+                forecast_date=(pd.Timestamp(context.as_of) + offset * h).to_pydatetime(),
+                payload=ContinuousForecast(
+                    point_forecast=point,
+                    quantiles={q: point + (q - 0.5) * 5 for q in STANDARD_QUANTILES},
+                ),
+            )
+            for h in task.horizons
+        ]
 
 
 # ---------------------------------------------------------------------------
@@ -136,14 +139,14 @@ class TestMultiTargetBacktestSpec:
         task_monthly = ForecastingTask(
             task_id="monthly",
             target_series_id="s1",
-            horizon=12,
+            horizons=[12],
             frequency="MS",
             description="monthly",
         )
         task_quarterly = ForecastingTask(
             task_id="quarterly",
             target_series_id="s2",
-            horizon=4,
+            horizons=[4],
             frequency="QS",
             description="quarterly",
         )
@@ -259,8 +262,8 @@ class TestMultiTargetEvalSpec:
             assert s.spec_id == "shared_id"
 
     def test_mixed_frequencies_raises(self) -> None:
-        task_m = ForecastingTask(task_id="m", target_series_id="s1", horizon=12, frequency="MS", description="m")
-        task_q = ForecastingTask(task_id="q", target_series_id="s2", horizon=4, frequency="QS", description="q")
+        task_m = ForecastingTask(task_id="m", target_series_id="s1", horizons=[12], frequency="MS", description="m")
+        task_q = ForecastingTask(task_id="q", target_series_id="s2", horizons=[4], frequency="QS", description="q")
         with pytest.raises(ValueError, match="same frequency"):
             MultiTargetEvalSpec(
                 spec_id="bad",

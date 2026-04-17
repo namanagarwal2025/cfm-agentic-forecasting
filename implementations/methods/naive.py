@@ -47,6 +47,10 @@ class LastValuePredictor(Predictor):
     calibration score — a well-calibrated model should spread its quantiles to
     reflect genuine uncertainty.
 
+    For multi-horizon tasks (``len(task.horizons) > 1``), the same last value
+    is carried forward as a flat forecast for every requested step — equivalent
+    to the "persistence" or "random-walk" assumption.
+
     Parameters
     ----------
     None
@@ -67,17 +71,17 @@ class LastValuePredictor(Predictor):
     #
     # Arguments:
     #   task    — ForecastingTask: defines the problem (target series,
-    #             horizon, frequency). Read-only; do not modify it.
+    #             horizons, frequency). Read-only; do not modify it.
     #   context — ForecastContext: your data access object. All series
     #             returned by context.get_series() are already filtered
     #             to context.as_of — you cannot accidentally access
     #             future data.
     #
     # Return:
-    #   A fully constructed Prediction object (see below).
+    #   list[Prediction] — one per horizon step in task.horizons.
     # ------------------------------------------------------------------
-    def predict(self, task: ForecastingTask, context: ForecastContext) -> Prediction:
-        """Produce a last-value naive forecast for the given task and context."""
+    def predict(self, task: ForecastingTask, context: ForecastContext) -> list[Prediction]:
+        """Produce last-value naive forecasts for every horizon in the task."""
         # ------------------------------------------------------------------
         # Step 3: fetch the target series.
         # Returns a DataFrame with columns: timestamp, value, released_at.
@@ -107,27 +111,23 @@ class LastValuePredictor(Predictor):
         )
 
         # ------------------------------------------------------------------
-        # Step 6: compute the forecast date.
-        # This is the future timestamp being predicted:
-        #   context.as_of + task.horizon steps at task.frequency.
-        # The harness uses this to look up the ground-truth observation
-        # when scoring.
+        # Step 6: build one Prediction per requested horizon.
+        # task.horizons is a list of integer steps (e.g. [18] or [6..17]).
+        # For each step h, the forecast date is as_of + h × frequency.
+        # The harness uses each forecast_date to look up the ground-truth
+        # observation and score the prediction.
         # ------------------------------------------------------------------
-        forecast_date: datetime = (
-            pd.Timestamp(context.as_of) + pd.tseries.frequencies.to_offset(task.frequency) * task.horizon
-        ).to_pydatetime()
+        offset = pd.tseries.frequencies.to_offset(task.frequency)
+        issued_at = datetime.now(tz=timezone.utc).replace(tzinfo=None)
 
-        # ------------------------------------------------------------------
-        # Step 7: wrap everything in a Prediction and return it.
-        # All fields except metadata are required.
-        # Use metadata to attach side-channel data (model stats, sources,
-        # trace IDs, etc.) — the harness ignores it but passes it through.
-        # ------------------------------------------------------------------
-        return Prediction(
-            predictor_id=self.predictor_id,
-            task_id=task.task_id,
-            issued_at=datetime.now(tz=timezone.utc).replace(tzinfo=None),
-            as_of=context.as_of,
-            forecast_date=forecast_date,
-            payload=payload,
-        )
+        return [
+            Prediction(
+                predictor_id=self.predictor_id,
+                task_id=task.task_id,
+                issued_at=issued_at,
+                as_of=context.as_of,
+                forecast_date=(pd.Timestamp(context.as_of) + offset * h).to_pydatetime(),
+                payload=payload,
+            )
+            for h in task.horizons
+        ]

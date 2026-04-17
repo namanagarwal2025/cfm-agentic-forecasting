@@ -466,7 +466,9 @@ class MultiTargetEvalSpec(BaseModel):
     """
 
     spec_id: str = Field(description="Stable identifier for tracking; keyed by EvalTracker.")
-    tasks: list[ForecastingTask] = Field(min_length=1, description="Prediction problems; all must share the same frequency.")
+    tasks: list[ForecastingTask] = Field(
+        min_length=1, description="Prediction problems; all must share the same frequency."
+    )
     start: datetime = Field(description="First candidate forecast origin.")
     end: datetime = Field(description="Last candidate forecast origin (inclusive).")
     stride: int = Field(default=1, ge=1, description="Step size between origins in task-frequency units.")
@@ -484,8 +486,7 @@ class MultiTargetEvalSpec(BaseModel):
         frequencies = {t.frequency for t in self.tasks}
         if len(frequencies) > 1:
             raise ValueError(
-                f"All tasks in a MultiTargetEvalSpec must share the same frequency. "
-                f"Found: {sorted(frequencies)}"
+                f"All tasks in a MultiTargetEvalSpec must share the same frequency. Found: {sorted(frequencies)}"
             )
         return self
 

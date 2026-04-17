@@ -1,3 +1,36 @@
+## Apr 16, 2026 — Multi-horizon forecasting: architecture + CFPR trajectory [Ethan & Agent]
+
+### Work completed
+
+**Breaking change: multi-horizon `Predictor` interface**
+- `ForecastingTask.horizon: int` replaced by `ForecastingTask.horizons: list[int]`. A `model_validator(mode="before")` coerces old `horizon=N` syntax transparently — all existing YAML specs, Python call sites, and tests continue to work unchanged.
+- `task.horizon` property (= `max(task.horizons)`) retained as a convenience for single-step callers and as the `n` parameter for Darts trajectory generation.
+- `Predictor.predict()` return type changed from `Prediction` to `list[Prediction]` — one element per step in `task.horizons`. Single-horizon predictors return a one-element list; trajectory predictors return all steps from a single model call.
+- `run_eval_loop` (shared by `backtest()` and `evaluate()`) updated to iterate over the list returned per origin. An origin is "skipped" only if no step is resolvable (warmup not met, or all forecast dates are future). The flat `BacktestResult.predictions` list now has shape `origins_scored × len(task.horizons)`.
+- All three concrete predictors updated (`naive.py`, `darts_arima.py`, `darts_regression.py`): fit once to `n=task.horizon`, extract samples at each requested horizon index.
+- `_fit_and_sample` in `darts_regression.py` now returns `dict[int, ndarray]` (horizon step → samples), replacing the old single-step `ndarray` return.
+- All reference YAML specs updated to use `horizons: [N]` (canonical form).
+- All tests updated; 63 evaluation tests pass.
+
+**Rationale for breaking change:** trajectory-based models (Darts, and future LLMs) naturally produce a coherent forecast path in one call. `predict() -> list[Prediction]` makes single- and multi-horizon a natural special case of the same interface. An LLM reasoner over a 12-month forecast window should not be forced into 12 separate single-step calls — that would destroy temporal coherence.
+
+**CFPR notebook redesign (`food_cpi_experiment.ipynb`)**
+- Uses `horizons=list(range(6, 18))` (12 steps, Jan–Dec of Y+1 from a July origin) for the main backtesting loop.
+- Fast-mode flag (`FAST_MODE = True`): uses only `LastValuePredictor` and two `DartsLinearRegressionPredictor` variants (univariate + with covariates) for rapid iteration. `DartsAutoARIMAPredictor` and `DartsLightGBMPredictor` can be added when `FAST_MODE = False`.
+- New: **avg/avg YoY computation** — `compute_avgyoy()` derives the CFPR-style average-year-over-average-year YoY from the 12-step trajectory, including quantile-level uncertainty bands.
+- New: **trajectory fan charts** for the 3 most recent origins showing observed history + full 12-step predicted distribution.
+- New: **CRPS by horizon** plot — shows whether accuracy degrades at longer horizons.
+- Eval section uses single-horizon spec (`horizons: [18]`) for the protected window.
+
+### Key decisions
+
+- **`horizons` not `horizon_list` or `steps`.** Plural of the existing field name — minimal conceptual overhead; old name is backward-compatible.
+- **No `predict_trajectory()` additive hook.** The cleanest and most general design is a single `predict()` that returns all horizons. An additive hook would create two entry points to maintain and a confusing mental model for implementers.
+- **Flat `BacktestResult.predictions`.** Multi-horizon results are stored as a flat list with each `Prediction` carrying its `forecast_date`. Analysis code slices by `as_of` (origin) or `forecast_date` (horizon) as needed. No nested structure.
+- **`task.horizon` property preserved.** Darts models, Statsforecast, and most third-party libraries take a single `n` argument. `task.horizon = max(task.horizons)` gives them what they need without duplicating that logic in every predictor.
+
+---
+
 ## Apr 16, 2026 — CFPR reference experiment + multi-target eval framework [Ethan & Agent]
 
 ### Work completed

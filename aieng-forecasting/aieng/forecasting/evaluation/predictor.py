@@ -12,14 +12,25 @@ class Predictor(ABC):
 
     A ``Predictor`` encapsulates everything about *how* a forecasting problem
     is solved: which series to request from the data service, how to handle
-    gaps, what model or agent to use, and how to produce a probabilistic
-    forecast.
+    gaps, what model or agent to use, and how to produce probabilistic
+    forecasts.
 
-    The interface is deliberately minimal — a single ``predict`` method and a
+    The interface is deliberately minimal — a ``predict`` method and a
     ``predictor_id`` property. This means any two implementations — a vanilla
     ARIMA and a multi-step LLM agent — can be evaluated against the same
     :class:`~aieng.forecasting.evaluation.task.ForecastingTask` without the
-    evaluation harness needing to know anything about either of them.
+    evaluation harness needing to know anything about either.
+
+    **Multi-horizon forecasting:** ``predict()`` returns ``list[Prediction]``
+    — one ``Prediction`` per horizon step declared in ``task.horizons``.
+    Single-horizon tasks produce a one-element list; multi-horizon tasks
+    produce one element per requested step.
+
+    This design lets trajectory-based models (Darts, LLMs) produce a coherent
+    forecast path in one call, while also making single-step predictors natural
+    (just return a one-element list). The evaluation harness scores each
+    ``Prediction`` in the list independently and accumulates the results in a
+    flat ``BacktestResult``.
 
     **Backtesting vs live evaluation:** the predictor never knows which mode
     it is in. The harness creates a
@@ -34,12 +45,10 @@ class Predictor(ABC):
     of the challenge for evaluating such predictors.
 
     **Side-effects and metadata:** predictors are free to write logs, traces,
-    or other artifacts to disk, to Langfuse, or to any external store as
-    side-effects of ``predict()`` — the harness does not constrain this. For
-    structured data that should travel *with* each prediction (token counts,
-    source lists, agent trace IDs, intermediate statistics), populate the
-    ``Prediction.metadata`` dict. The harness passes it through transparently;
-    callers inspect it as needed.
+    or other artifacts as side-effects of ``predict()``. For structured data
+    that should travel *with* each prediction (token counts, source lists,
+    agent trace IDs), populate the ``Prediction.metadata`` dict. The harness
+    passes it through transparently.
 
     Examples
     --------
@@ -57,7 +66,7 @@ class Predictor(ABC):
                 self,
                 task: ForecastingTask,
                 context: ForecastContext,
-            ) -> Prediction:
+            ) -> list[Prediction]:
                 from datetime import datetime
                 import pandas as pd
                 from aieng.forecasting.evaluation.prediction import (
@@ -65,19 +74,22 @@ class Predictor(ABC):
                     STANDARD_QUANTILES,
                 )
 
-                forecast_date = context.as_of + pd.DateOffset(months=task.horizon)
+                offset = pd.tseries.frequencies.to_offset(task.frequency)
                 payload = ContinuousForecast(
                     point_forecast=self._value,
                     quantiles={q: self._value for q in STANDARD_QUANTILES},
                 )
-                return Prediction(
-                    predictor_id=self.predictor_id,
-                    task_id=task.task_id,
-                    issued_at=datetime.utcnow(),
-                    as_of=context.as_of,
-                    forecast_date=forecast_date.to_pydatetime(),
-                    payload=payload,
-                )
+                return [
+                    Prediction(
+                        predictor_id=self.predictor_id,
+                        task_id=task.task_id,
+                        issued_at=datetime.utcnow(),
+                        as_of=context.as_of,
+                        forecast_date=(pd.Timestamp(context.as_of) + offset * h).to_pydatetime(),
+                        payload=payload,
+                    )
+                    for h in task.horizons
+                ]
     """
 
     @property
@@ -91,23 +103,25 @@ class Predictor(ABC):
         """
 
     @abstractmethod
-    def predict(self, task: ForecastingTask, context: ForecastContext) -> Prediction:
-        """Produce a probabilistic forecast for the given task and context.
+    def predict(self, task: ForecastingTask, context: ForecastContext) -> list[Prediction]:
+        """Produce probabilistic forecasts for the given task and context.
 
         Parameters
         ----------
         task : ForecastingTask
-            Defines the prediction problem — target series, horizon, frequency,
-            and resolution logic. The predictor must not modify the task.
+            Defines the prediction problem — target series, horizon(s),
+            frequency, and resolution logic. The predictor must not modify
+            the task.
         context : ForecastContext
             The information state available at forecast time. All calls to
             ``context.get_series()`` are automatically filtered to
-            ``context.as_of`` — the predictor cannot accidentally access future
-            data from the series store.
+            ``context.as_of`` — the predictor cannot accidentally access
+            future data from the series store.
 
         Returns
         -------
-        Prediction
-            A fully populated ``Prediction`` with ``as_of = context.as_of``
-            and ``forecast_date = context.as_of + task.horizon`` steps.
+        list[Prediction]
+            One ``Prediction`` per horizon step in ``task.horizons``, each
+            with ``as_of = context.as_of`` and ``forecast_date`` set to the
+            corresponding step ahead of the origin. The list must not be empty.
         """

@@ -151,18 +151,14 @@ class FREDAdapter(BaseAdapter):
         try:
             from fredapi import Fred  # noqa: PLC0415
         except ImportError as exc:
-            raise RuntimeError(
-                "fredapi is not installed. Run `uv add fredapi` to install it."
-            ) from exc
+            raise RuntimeError("fredapi is not installed. Run `uv add fredapi` to install it.") from exc
 
         fred = Fred(api_key=self._api_key)
 
         try:
             raw: pd.Series = fred.get_series(self._series_id)
         except Exception as exc:
-            raise RuntimeError(
-                f"Failed to fetch FRED series '{self._series_id}': {exc}"
-            ) from exc
+            raise RuntimeError(f"Failed to fetch FRED series '{self._series_id}': {exc}") from exc
 
         if raw.empty:
             raise RuntimeError(f"FRED series '{self._series_id}' returned no data.")

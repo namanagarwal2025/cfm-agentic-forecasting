@@ -74,7 +74,7 @@ def task() -> ForecastingTask:
     return ForecastingTask(
         task_id="synthetic_6m",
         target_series_id="target",
-        horizon=HORIZON,
+        horizons=[HORIZON],
         frequency="MS",
         description="Synthetic 6-month forecast for unit tests.",
     )
@@ -95,21 +95,23 @@ def _assert_valid_probabilistic(pred: Prediction, expected_id: str) -> None:
 
 def test_linear_regression_with_covariates(svc: DataService, task: ForecastingTask) -> None:
     """LinearRegression predictor returns a valid probabilistic forecast with covariates."""
-    pred = DartsLinearRegressionPredictor(
+    preds = DartsLinearRegressionPredictor(
         lags=12,
         lags_past_covariates=12,
         covariate_series_ids=["cov_a", "cov_b"],
         num_samples=200,
     ).predict(task, svc.context(AS_OF))
-    _assert_valid_probabilistic(pred, "darts_linreg_cov")
+    assert len(preds) == 1, "Single-horizon task should yield exactly one Prediction."
+    _assert_valid_probabilistic(preds[0], "darts_linreg_cov")
 
 
 def test_lightgbm_with_covariates(svc: DataService, task: ForecastingTask) -> None:
     """LightGBM predictor returns a valid probabilistic forecast with covariates."""
-    pred = DartsLightGBMPredictor(
+    preds = DartsLightGBMPredictor(
         lags=12,
         lags_past_covariates=12,
         covariate_series_ids=["cov_a", "cov_b"],
         num_samples=200,
     ).predict(task, svc.context(AS_OF))
-    _assert_valid_probabilistic(pred, "darts_lightgbm_cov")
+    assert len(preds) == 1, "Single-horizon task should yield exactly one Prediction."
+    _assert_valid_probabilistic(preds[0], "darts_lightgbm_cov")

@@ -31,7 +31,7 @@ spec_id: cpi_allitems_eval_2yr
 task:
   task_id: cpi_all_items_canada_12m
   target_series_id: cpi_all_items_canada
-  horizon: 12
+  horizons: [12]
   frequency: MS
   description: >
     Forecast Canada-wide CPI All-items (index, 2002=100) exactly 12 months

@@ -1,13 +1,15 @@
 """ForecastingTask: defines a prediction problem against the data service."""
 
-from pydantic import BaseModel, Field
+from __future__ import annotations
+
+from pydantic import BaseModel, Field, model_validator
 
 
 class ForecastingTask(BaseModel):
     """Defines a prediction problem, independent of how it is solved.
 
     A ``ForecastingTask`` specifies *what* to forecast: the target series,
-    the horizon, the temporal resolution, and how to determine ground truth.
+    the horizon(s), the temporal resolution, and how to determine ground truth.
     It says nothing about *how* a predictor should solve the problem —
     covariate selection, gap-filling, and model choice are all predictor
     concerns.
@@ -22,12 +24,19 @@ class ForecastingTask(BaseModel):
         Unique identifier for this forecasting task.
     target_series_id : str
         The ``series_id`` (key in ``SeriesStore``) of the series to forecast.
-    horizon : int
-        Number of steps ahead to forecast.
+    horizons : list[int]
+        One or more horizon steps to forecast.  Horizon ``h`` means ``h``
+        frequency-units ahead of the forecast origin.  For example,
+        ``horizons=[18]`` on monthly data means 18 months ahead;
+        ``horizons=[6, 7, 8, ..., 17]`` produces a full trajectory.
+
+        **Backward compatibility:** you may pass ``horizon=N`` (singular, int)
+        and it will be silently coerced to ``horizons=[N]``.  This keeps
+        existing YAML specs, notebook code, and tests working without changes.
     frequency : str
         Pandas offset alias for the forecast frequency (e.g. ``"MS"`` for
         month-start, ``"h"`` for hourly, ``"D"`` for daily). Combined with
-        ``horizon``, this determines the forecast window.
+        ``horizons``, this determines the forecast window.
     description : str
         Human-readable description of the prediction problem.
     resolution_fn : str
@@ -38,13 +47,8 @@ class ForecastingTask(BaseModel):
 
         .. note::
             **This field is currently a placeholder.** The evaluation harness
-            (``backtest()`` and ``evaluate()``) always uses the
-            ``"observed_value_at_resolution_timestamp"`` strategy regardless
-            of this value. Dispatch on ``resolution_fn`` is deferred; the
-            field is defined now so that task specs and result records carry
-            the intent, and so that alternative strategies (e.g. for derived
-            quantities or aggregated targets) can be added without a breaking
-            change to the model.
+            always uses ``"observed_value_at_resolution_timestamp"`` regardless
+            of this value. Dispatch on alternative strategies is deferred.
 
     Notes
     -----
@@ -54,9 +58,9 @@ class ForecastingTask(BaseModel):
 
         ForecastingTask  →  defines the question
         Predictor        →  decides how to answer it
-        Prediction       →  the answer
+        list[Prediction] →  the answers (one per horizon)
         Resolution       →  ground truth
-        Score            →  how well the answer matched
+        Score            →  how well each answer matched
 
     In backtest mode, the harness iterates over historical forecast origins.
     In live mode, it waits for the resolution date. The task definition does
@@ -64,6 +68,29 @@ class ForecastingTask(BaseModel):
 
     Examples
     --------
+    Single horizon (equivalent to old ``horizon=18``):
+
+    >>> task = ForecastingTask(
+    ...     task_id="cpi_food_18m",
+    ...     target_series_id="cpi_food_canada",
+    ...     horizons=[18],
+    ...     frequency="MS",
+    ...     description="Forecast Canada food CPI 18 months ahead.",
+    ... )
+
+    Multi-horizon trajectory (horizons 6–17 → January through December of Y+1
+    from a July origin):
+
+    >>> task = ForecastingTask(
+    ...     task_id="cpi_food_cfpr_trajectory",
+    ...     target_series_id="cpi_food_canada",
+    ...     horizons=list(range(6, 18)),
+    ...     frequency="MS",
+    ...     description="Full 12-step trajectory for CFPR average-year analysis.",
+    ... )
+
+    Backward-compatible old syntax still works:
+
     >>> task = ForecastingTask(
     ...     task_id="cpi_all_items_1m_ahead",
     ...     target_series_id="cpi_all_items_canada",
@@ -74,8 +101,13 @@ class ForecastingTask(BaseModel):
     """
 
     task_id: str = Field(description="Unique identifier for this forecasting task.")
-    target_series_id: str = Field(description="The series_id (key in SeriesStore) of the series to forecast.")
-    horizon: int = Field(ge=1, description="Number of steps ahead to forecast.")
+    target_series_id: str = Field(description="The series_id of the series to forecast.")
+    horizons: list[int] = Field(
+        min_length=1,
+        description=(
+            "One or more horizon steps to forecast. Horizon h means h frequency-units ahead of the forecast origin."
+        ),
+    )
     frequency: str = Field(description="Pandas offset alias for the forecast frequency, e.g. 'MS', 'h', 'D'.")
     description: str = Field(description="Human-readable description of the prediction problem.")
     resolution_fn: str = Field(
@@ -86,3 +118,23 @@ class ForecastingTask(BaseModel):
             "Dispatch on alternative strategies is deferred."
         ),
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_single_horizon(cls, data: object) -> object:
+        """Accept legacy ``horizon=N`` and coerce to ``horizons=[N]``."""
+        if isinstance(data, dict) and "horizon" in data and "horizons" not in data:
+            data = dict(data)
+            data["horizons"] = [int(data.pop("horizon"))]
+        return data
+
+    @property
+    def horizon(self) -> int:
+        """The maximum (outermost) horizon step.
+
+        For single-horizon tasks this is the only element of ``horizons``.
+        For multi-horizon tasks this is ``max(horizons)``, which is what
+        Darts models and other trajectory-based predictors need as their
+        ``n`` parameter.
+        """
+        return max(self.horizons)
