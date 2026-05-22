@@ -106,9 +106,8 @@ implementations/food_price_forecasting/
 ├── plots.py       # plot_trajectory_fan, plot_avgyoy_grid,
 │                  # plot_crps_disaggregated, plot_mape_distribution,
 │                  # plot_food_cpi_small_multiples
-├── analyst_agent/ # task-specific ADK agent config and prompt builder
-├── food_cpi_experiment.ipynb      # 26-cell narrative over the helpers above
-└── food_data_exploration.ipynb    # 9-cell warm-up tour of the 9 series
+├── 01_food_data_exploration.ipynb # 9-cell warm-up tour of the 9 series
+└── 02_food_cpi_experiment.ipynb   # 26-cell narrative over the helpers above
 ```
 
 Unit tests for the analysis helpers live under
@@ -149,84 +148,12 @@ No FRED API key is required for the canonical experiment.
 
 ---
 
-## Agentic Predictor
-
-The concrete food CPI agent lives in `analyst_agent/`. It uses the reusable
-`aieng.forecasting.methods.agentic` helpers with food-task-specific
-configuration.
-
-### Identity vs. role
-
-`AgentConfig` captures the agent's **identity** — instruction, model, and
-capability toggles. It says nothing about output format.
-
-`AgentPredictor` (and `build_food_price_agent_predictor`) captures the agent's
-**role** in a specific experiment — including the `output_schema` it must
-satisfy. The same config can be reused across roles.
-
-### Three instantiation patterns
-
-**Pattern 1 — experiment predictor (one-liner)**
-
-```python
-from food_price_forecasting.analyst_agent import build_food_price_agent_predictor
-
-predictor = build_food_price_agent_predictor(model="gemini-3-flash-preview")
-# output_schema defaults to ContinuousAgentForecastOutput
-```
-
-**Pattern 2 — explicit construction (shows the split)**
-
-```python
-from aieng.forecasting.methods.agentic import AgentPredictor, ContinuousAgentForecastOutput
-from food_price_forecasting.analyst_agent import (
-    FoodPriceForecastPromptBuilder,
-    build_food_price_agent_config,
-)
-
-config = build_food_price_agent_config()            # identity
-predictor = AgentPredictor(                         # role in this experiment
-    config,
-    FoodPriceForecastPromptBuilder(),
-    output_schema=ContinuousAgentForecastOutput,
-)
-```
-
-**Pattern 3 — interactive analyst via `adk web`**
-
-```bash
-# From the repo root — opens a chat UI; no JSON constraint.
-uv run adk web implementations/food_price_forecasting/analyst_agent
-```
-
-`analyst_agent/agent.py` exposes a `root_agent` lazily via `__getattr__`,
-calling `build_adk_agent(config)` with no `output_schema`.  The agent reasons
-freely without being forced into Track 1 JSON.
-
-### Notes
-
-- `output_schema` is supplied to `AgentPredictor`, not to `AgentConfig`. This
-  means the schema is determined at predictor instantiation time, not baked
-  into the agent definition.
-- **`context_agent`** (bounded news search) is a separate optional tool on the
-  forecaster, **off by default** (`enable_news_search=False`). Enable with
-  `enable_news_search=True` only when `as_of` is the real present, or you accept
-  leakage risk in historical runs. The experiment notebook exposes this switch.
-- **No skills in v1.** The v1 baseline does not use ADK `SkillToolset`. Attaching
-  a skill toolset unconditionally injects an ADK system-prompt description of
-  executable scripts, which causes the model to hallucinate script names even when
-  the skill contains none. Skills will be reintroduced once we have genuine
-  reference data to put in them. See [`docs/adk-skills-guide.md`](../../docs/adk-skills-guide.md)
-  for the design rationale and a concrete spec for the next skill.
-
----
-
 ## Notebooks
 
 | Notebook | Purpose |
 |----------|---------|
-| `food_data_exploration.ipynb` | Short warm-up tour: register the 9 series, small-multiples history, YoY overlay, coverage table. |
-| `food_cpi_experiment.ipynb`   | **Main experiment.** Selectable via `EXPERIMENT_CONFIG` (`"full"` / `"mini_recent"` / `"mini_single"`). Runs cached backtests for two baselines (`LastValuePredictor`, `DartsAutoARIMAPredictor`), two LLMPs, and four agentic predictors (two models × with/without news search). Plots trajectory fans, avg/avg YoY grid, and CRPS/MAPE leaderboards. Includes a smoke test cell that prints the agent's system prompt and user message before calling `predict()`. |
+| `01_food_data_exploration.ipynb` | Short warm-up tour: register the 9 series, small-multiples history, YoY overlay, coverage table. |
+| `02_food_cpi_experiment.ipynb`   | **Main experiment.** Selectable via `EXPERIMENT_CONFIG` (`"full"` / `"mini_recent"` / `"mini_single"`). Runs cached backtests for two baselines (`LastValuePredictor`, `DartsAutoARIMAPredictor`) and two LLMPs. Plots trajectory fans, avg/avg YoY grid, and CRPS/MAPE leaderboards. |
 
 ---
 

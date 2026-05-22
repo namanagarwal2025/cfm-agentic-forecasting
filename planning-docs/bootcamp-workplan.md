@@ -39,9 +39,9 @@ These are the experiments we plan to make runnable, documented, and suitable for
 | Experiment                  | Role                                                                                             | Dataset(s)                         | Owner     | Status                                                                                                                                 |
 | --------------------------- | ------------------------------------------------------------------------------------------------ | ---------------------------------- | --------- | -------------------------------------------------------------------------------------------------------------------------------------- |
 | Getting Started             | Smallest continuous forecasting walkthrough using CPI gasoline.                                  | StatCan                            | —         | **Complete.** h=1 (1-month ahead); backtest 2000–2025; eval Jan 2025–Mar 2026.                                                        |
-| Food Price Forecasting      | CFPR-style multivariate CPI task and flagship no-futures context-driven case.                    | StatCan; optional FRED extensions  | Ethan     | **Complete.** Baselines, LLMPs, and agentic predictors integrated. Mini specs for fast iteration. No protected historical eval (leakage). |
+| Food Price Forecasting      | CFPR-style multivariate CPI task and clean model selection case study comparing baselines & LLMPs.| StatCan; optional FRED extensions  | Ethan     | **Complete.** Baselines and LLMPs integrated. Mini specs for fast iteration. No protected historical eval (leakage). |
 | Financial Markets - S&P 500 | Deep numerical-methods comparison; first formal financial-markets Track 1 template.              | yfinance; optional FRED covariates | Behnoosh  | **In progress.** Net-new reference implementation.                                                                                     |
-| Energy/Oil                  | Daily WTI forecasting with proper eval; sponsor-facing context-driven case.                      | yfinance                           | Ethan     | **Demo complete; promotion in progress.** Playground today (`playground/energy_case_study/`); formal reference + eval spec is next.      |
+| Energy/Oil                  | Daily WTI forecasting with proper eval; sponsor-facing context-driven case.                      | yfinance                           | Ethan     | **Complete.** Four-notebook curriculum under `implementations/energy_oil_forecasting/`: case-study narrative, agentic staircase, one-agent-three-tasks, systematic backtest/eval. |
 | BoC Rate Decisions          | Sole binary/discrete-event reference experiment and validation surface for `BinaryForecast`.     | StatCan, FRED, public BoC material | Ethan     | **Planned.** Net-new reference after energy promotion.                                                                                 |
 
 ### Energy/Oil 2026 Case Study
@@ -58,9 +58,9 @@ The case study should demonstrate the bootcamp thesis:
 
 The interactive Track 2 example can support questions such as: "Analyze what has happened with energy prices in 2026 so far. Then show me two forecasts: one where the Strait of Hormuz stays closed for another month and one where it reopens tomorrow."
 
-**May 21 demo:** complete. Two notebooks in `playground/energy_case_study/` (Prophet rolling backtest + agentic scenario analysis).
+**May 21 demo:** complete. Playground notebooks in `playground/energy_case_study/`; formal reference in `implementations/energy_oil_forecasting/` (4 notebooks).
 
-**Next (Ethan):** promote to a formal reference experiment under `implementations/` with a worthwhile eval spec. Daily WTI data enables clean cutoff enforcement and prospective evaluation — a key differentiator from the food CPI experiment.
+**Status (Ethan):** Rebuilt reference with decomposed helper modules (`prophet_baseline.py`, `viz.py`, `tasks.py`, `analysis.py`) and four-notebook curriculum preserving the original narrative arc.
 
 ### Participant Extension Ideas
 
@@ -174,18 +174,17 @@ Deliverables:
 
 Reusable yfinance ingestion already exists in `aieng.forecasting.data`.
 
-### D. Energy/oil reference promotion (Ethan) — next
+### D. Energy/oil reference promotion (Ethan) — Done
 
-Target: before BoC; start ASAP to maximize live-eval horizon before Build Days
+Status: **Done.**
 
-Deliverables:
+Deliverables completed:
 
-- Promote from `playground/energy_case_study/` to `implementations/energy_*/` (name TBD).
-- Priority: **worthwhile eval spec** — daily WTI enables clean cutoff + prospective evaluation.
-- Wire at least one harness-integrated numerical baseline through `backtest()` / `evaluate()`.
-- Reuse agent patterns from food CPI where appropriate.
-- Playground remains until promotion PR merges.
-- Optional fast-follow: futures-data review (contract chains, roll rules, curve snapshots, licensing) before depending on futures-curve semantics.
+- Promoted from `playground/energy_case_study/` to `implementations/energy_oil_forecasting/`.
+- Created robust 2025 backtest (`energy_oil_backtest.yaml`) and 2026 evaluation (`energy_oil_eval.yaml`) specs.
+- Wired yfinance and Prophet into standard `Predictor` contracts and evaluation pipelines.
+- Implemented a 4-step progressive agentic walkthrough showing blind statistical models, basic direct-prompted LLMs, news-grounded agents (with bounded search cutoffs), and advanced agents with Gemini's native code execution and custom forecasting skills.
+- Deleted playground folder to consolidate references under `implementations/`.
 
 ### E. BoC rate prediction reference (Ethan) — after energy
 

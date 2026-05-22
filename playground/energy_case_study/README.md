@@ -1,5 +1,10 @@
 # Energy/Oil Case Study
 
+> **Archived playground copy.** The formal reference implementation lives under
+> [`implementations/energy_oil_forecasting/`](../../implementations/energy_oil_forecasting/).
+> Use these notebooks as a visual regression reference while porting; prefer the
+> implementation notebooks for cohort 1.
+
 A two-part case study for the May 21 information session, telling a single story:
 
 > *A strong statistical model (Prophet) is caught completely off-guard by a geopolitical
