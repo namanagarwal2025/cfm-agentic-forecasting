@@ -166,9 +166,7 @@ class BoCLogisticPredictor(Predictor):
             If the task is not binary or requests more than one horizon.
         """
         if task.payload_type != "binary":
-            raise ValueError(
-                f"{type(self).__name__} requires a binary task; got payload_type='{task.payload_type}'."
-            )
+            raise ValueError(f"{type(self).__name__} requires a binary task; got payload_type='{task.payload_type}'.")
         if len(task.horizons) != 1:
             raise ValueError(f"{type(self).__name__} supports exactly one horizon; got {task.horizons}.")
 

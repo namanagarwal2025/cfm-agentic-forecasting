@@ -69,21 +69,26 @@ class StatCanAdapter(BaseAdapter):
         Directory where the ``stats-can`` library stores its local table cache.
         Defaults to ``"data/statcan"`` relative to the current working directory.
     release_lag_days : int
-        Days added to ``timestamp`` to populate ``released_at``. Defaults to
-        21, which approximates the publication lag of monthly survey tables
-        such as CPI. Daily financial-market tables (e.g. 10-10-0139-01
-        interest rates) are published the next business day — pass
-        ``release_lag_days=1`` for those so backtests do not hide three weeks
-        of perfectly public market data from predictors.
+        Days added to ``timestamp`` to populate ``released_at``. The default
+        of 21 is a deliberately loose approximation for monthly survey
+        tables; note the lag is measured from the *month-start* timestamp,
+        while StatCan publishes CPI roughly three weeks after the month
+        *ends* (~51 days after the timestamp), so the default is optimistic
+        by about one month. Consumers that use monthly series as covariates
+        should add their own conservative lag (see the BoC use case). Daily
+        financial-market tables (e.g. 10-10-0139-01 interest rates) are
+        published the next business day — pass ``release_lag_days=1`` for
+        those so backtests do not hide three weeks of perfectly public
+        market data from predictors.
 
     Notes
     -----
     **Information cutoff**: StatCan publishes CPI data roughly 3 weeks after
-    the reference month. For example, January CPI is released in mid-February.
-    This adapter populates ``released_at`` as ``timestamp + release_lag_days``,
-    which approximates this lag. A more precise implementation would query
-    StatCan's release calendar API, but the fixed-lag approximation removes the
-    most significant optimistic bias in backtests.
+    the reference month ends. For example, January CPI is released in
+    mid-to-late February. This adapter populates ``released_at`` as
+    ``timestamp + release_lag_days``, a fixed-lag approximation. A more
+    precise implementation would query StatCan's release calendar API, but
+    the fixed lag removes the most significant optimistic bias in backtests.
 
     Examples
     --------
